@@ -1,4 +1,4 @@
-import { Plugin, MarkdownView, TAbstractFile, PluginSettingTab, App, Setting } from 'obsidian';
+import { Plugin, MarkdownView, TAbstractFile, PluginSettingTab, App, Setting, TFile } from 'obsidian';
 
 class CuboxSettings {
   targetFolder: string = '';
@@ -37,6 +37,29 @@ export default class CuboxPlugin extends Plugin {
 
 		this.registerEvent(this.app.vault.on('create', async (file: TAbstractFile) => {
 			if (!this.settings.targetFolder) return;
+
+			console.log("before insert created attribute:")
+			if (file instanceof TFile && file.parent?.path === this.settings.targetFolder) {
+				console.log("check created attribute:")
+				const now = new Date();
+				const formatted = now.getFullYear() + '-' +
+					String(now.getMonth() + 1).padStart(2, '0') + '-' +
+					String(now.getDate()).padStart(2, '0');
+
+				// 读取原内容
+				let content = await this.app.vault.read(file);
+				// 如果没有 front matter，就加上
+				if (!content.startsWith('---')) {
+					content = `---\ncreated: ${formatted}\n---\n` + content;
+					await this.app.vault.modify(file, content);
+				} else {
+					// 有 front matter 的情况，可以插入到里面
+					const lines = content.split('\n');
+					lines.splice(1, 0, `created: ${formatted}`);
+					await this.app.vault.modify(file, lines.join('\n'));
+				}
+			}
+			
 			if (file.name.includes('.md') && file.parent?.path === this.settings.targetFolder) {
 				setTimeout(() => {
 					const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
