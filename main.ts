@@ -96,57 +96,67 @@ export default class CuboxPlugin extends Plugin {
 		});
 
 
-        this.addCommand({
-          id: 'ask-gemini',
-          name: 'Ask Gemini (LLM)',
-          editorCallback: async (editor, view) => {
-            const file = this.app.workspace.getActiveFile();
-            if (!file) {
-              new Notice("未找到当前文件");
-              return;
-            }
+    this.addCommand({
+  id: 'ask-gemini',
+  name: 'Ask Gemini (LLM)',
+  editorCallback: async (editor, view) => {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("未找到当前文件");
+      return;
+    }
 
-            // 检查目录是否匹配 targetFolder
-            if (file.parent?.path !== this.settings.targetFolder) {
-              new Notice("该命令只对目标文件夹生效: " + this.settings.targetFolder);
-              return;
-            }
+    if (file.parent?.path !== this.settings.targetFolder) {
+      new Notice("该命令只对目标文件夹生效: " + this.settings.targetFolder);
+      return;
+    }
 
+    const doc = editor.getDoc();
+    const fullContent = doc.getValue();
+    if (!fullContent.trim()) {
+      new Notice("笔记内容为空，无法生成总结");
+      return;
+    }
 
-            const doc = editor.getDoc();
-            const fullContent = doc.getValue(); // 获取整个笔记内容
-            if (!fullContent.trim()) {
-              new Notice("笔记内容为空，无法生成总结");
-              return;
-            }
+    const prompt = `用100 字以内总结下内容:\n${fullContent}`;
 
-            const prompt = `用100 字以内总结下内容:\n${fullContent}`;
+    const totalLines = doc.lineCount();
+    let summaryLine = -1;
 
-            const answer = await this.askGemini(prompt);
-            if (!answer) return;
+    // 查找 "# 总结" 标题
+    for (let i = 0; i < totalLines; i++) {
+      if (doc.getLine(i).trim() === "# 总结") {
+        summaryLine = i;
+        break;
+      }
+    }
 
-            
-            const totalLines = doc.lineCount();
-            let summaryLine = -1;
+    let insertLine: number;
 
-            // 找有没有 "# 总结"
-            for (let i = 0; i < totalLines; i++) {
-              const line = doc.getLine(i);
-              if (line.trim() === "# 总结") {
-                summaryLine = i;
-                break;
-              }
-            }
+    if (summaryLine === -1) {
+      // 没有总结标题，末尾添加
+      doc.replaceRange("\n# 总结\n- 正在生成总结...\n", { line: totalLines, ch: 0 });
+      insertLine = totalLines + 1; // 临时提示行
+    } else {
+      // 有总结标题，检查标题下一行是否已经有“正在生成总结”
+      if (doc.getLine(summaryLine + 1)?.includes("正在生成总结...") ||
+          doc.getLine(summaryLine + 1)?.startsWith("- ")) {
+        insertLine = summaryLine + 1;
+        doc.replaceRange("- 正在生成总结...", { line: insertLine, ch: 0 }, { line: insertLine, ch: doc.getLine(insertLine).length });
+      } else {
+        insertLine = summaryLine + 1;
+        doc.replaceRange("- 正在生成总结...\n", { line: insertLine, ch: 0 });
+      }
+    }
 
-            if (summaryLine === -1) {
-              // 没有 -> 在末尾加标题
-              doc.replaceRange("\n\n# 总结\n- " + answer + "\n", { line: totalLines, ch: 0 });
-            } else {
-              // 已有 -> 直接追加到标题下
-              doc.replaceRange("\n- " + answer + "\n", { line: summaryLine + 1, ch: 0 });
-            }
-          }
-        });
+    const answer = await this.askGemini(prompt);
+    if (!answer) return;
+
+    // 替换临时文本为真实总结
+    doc.replaceRange("- " + answer, { line: insertLine, ch: 0 }, { line: insertLine, ch: doc.getLine(insertLine).length });
+  }
+});
+
 	}
 
 	batchDelete(markdownView: MarkdownView) {
